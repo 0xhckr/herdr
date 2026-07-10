@@ -30,6 +30,7 @@ pub(crate) fn render_collapsed_sidebar(
     snapshot: &ClientShellSnapshot,
     config: &ClientShellConfig,
     selected_workspace_id: Option<&str>,
+    hover: Option<&HoverTarget>,
     hits: &mut ShellHitMap,
 ) {
     let palette = &config.palette;
@@ -48,6 +49,7 @@ pub(crate) fn render_collapsed_sidebar(
             1,
         );
         let selected = selected_workspace_id == Some(workspace.workspace_id.as_str());
+        let hovered = matches!(hover, Some(HoverTarget::Workspace { endpoint_id: ClientEndpointId::Local, workspace_id }) if workspace_id == &workspace.workspace_id);
         let selection_background =
             if workspace.focused && palette.selection_bg == ratatui::style::Color::Reset {
                 palette.active_row_bg
@@ -58,6 +60,8 @@ pub(crate) fn render_collapsed_sidebar(
             buffer.set_style(rect, Style::default().bg(selection_background));
         } else if workspace.focused {
             buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
+        } else if hovered {
+            buffer.set_style(rect, Style::default().bg(palette.surface1));
         }
         let number_style = if selected {
             Style::default()
@@ -65,6 +69,8 @@ pub(crate) fn render_collapsed_sidebar(
                 .bg(selection_background)
         } else if workspace.focused {
             Style::default().fg(palette.text).bg(palette.active_row_bg)
+        } else if hovered {
+            Style::default().fg(palette.text).bg(palette.surface1)
         } else {
             Style::default().fg(palette.overlay0)
         };
@@ -298,9 +304,10 @@ pub(crate) fn render_sidebar(
             target.matches(state.active_endpoint_id, &workspace.workspace_id)
         });
         let dragged = state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
+        let hovered = matches!(state.hover, Some(HoverTarget::Workspace { endpoint_id: ClientEndpointId::Local, workspace_id }) if workspace_id == &workspace.workspace_id);
         if selected {
             buffer.set_style(rect, Style::default().bg(palette.selection_bg));
-        } else if dragged {
+        } else if dragged || hovered {
             buffer.set_style(rect, Style::default().bg(palette.surface1));
         } else if workspace.focused {
             buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
@@ -315,7 +322,7 @@ pub(crate) fn render_sidebar(
             rows,
             true,
             selected,
-            dragged,
+            dragged || hovered,
             palette,
         );
         let group_toggle = render_parent_group_toggle(
@@ -646,7 +653,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
     rows: Vec<Vec<crate::ui::ResolvedToken>>,
     endpoint_active: bool,
     selected: bool,
-    dragged: bool,
+    secondary_highlight: bool,
     palette: &Palette,
 ) {
     for (row_index, row) in rows.iter().enumerate() {
@@ -680,7 +687,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
         } else {
             x = x.saturating_add(3);
         }
-        let highlighted = endpoint_active && workspace.focused || dragged;
+        let highlighted = endpoint_active && workspace.focused || secondary_highlight;
         let workspace_style = Style::default()
             .fg(if highlighted {
                 palette.text
@@ -720,7 +727,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
 
     let background = if selected {
         Some(palette.selection_bg)
-    } else if dragged {
+    } else if secondary_highlight {
         Some(palette.surface1)
     } else if endpoint_active && workspace.focused {
         Some(palette.active_row_bg)

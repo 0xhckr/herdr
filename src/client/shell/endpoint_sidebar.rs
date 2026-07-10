@@ -117,6 +117,7 @@ pub(super) fn render_collapsed(
             }
             let rect = Rect::new(workspace_area.x, y, workspace_area.width, 1);
             let focused = active && workspace.focused;
+            let hovered = matches!(state.hover, Some(HoverTarget::Workspace { endpoint_id, workspace_id }) if endpoint_id == &endpoint.endpoint_id && workspace_id == &workspace.workspace_id);
             let selected = state.selected_workspace_id.is_some_and(|target| {
                 target.matches(&endpoint.endpoint_id, &workspace.workspace_id)
             });
@@ -129,6 +130,8 @@ pub(super) fn render_collapsed(
                 buffer.set_style(rect, Style::default().bg(selection_background));
             } else if focused {
                 buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
+            } else if hovered {
+                buffer.set_style(rect, Style::default().bg(palette.surface1));
             }
             let stale = endpoint.status != ClientEndpointStatus::Online;
             let number = format!(" {}", workspace.number);
@@ -145,7 +148,7 @@ pub(super) fn render_collapsed(
                 number_width,
                 &number,
                 Style::default()
-                    .fg(if focused && !stale {
+                    .fg(if (focused || hovered) && !stale {
                         palette.text
                     } else {
                         palette.overlay0
@@ -418,6 +421,7 @@ pub(super) fn render_expanded(
                     rect.height,
                 );
                 let endpoint_active = &endpoint.endpoint_id == state.active_endpoint_id;
+                let hovered = matches!(state.hover, Some(HoverTarget::Workspace { endpoint_id, workspace_id }) if endpoint_id == &endpoint.endpoint_id && workspace_id == &workspace.workspace_id);
                 let selected = state.selected_workspace_id.is_some_and(|target| {
                     target.matches(&endpoint.endpoint_id, &workspace.workspace_id)
                 });
@@ -431,7 +435,7 @@ pub(super) fn render_expanded(
                     tokens,
                     endpoint_active,
                     selected,
-                    false,
+                    hovered,
                     palette,
                 );
                 if selected && palette.selection_bg == ratatui::style::Color::Reset {

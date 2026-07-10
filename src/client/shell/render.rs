@@ -277,6 +277,7 @@ pub(super) fn render_shell(
                 state
                     .selected_workspace_id
                     .map(|target| target.workspace_id.as_str()),
+                state.hover,
                 &mut hits,
             );
         } else {
@@ -303,6 +304,9 @@ pub(super) fn render_shell(
             &mut hits,
         );
     }
+    if config.mouse_capture {
+        render_sidebar_button_hover(buffer, state.hover, &hits, &config.palette);
+    }
     if !config.mouse_capture {
         hits.sidebar_divider = Rect::default();
         hits.sidebar_section_divider = Rect::default();
@@ -320,6 +324,35 @@ pub(super) fn render_shell(
         hits.pane_splits.clear();
     }
     hits
+}
+
+pub(super) fn render_sidebar_button_hover(
+    buffer: &mut Buffer,
+    hover: Option<&HoverTarget>,
+    hits: &ShellHitMap,
+    palette: &Palette,
+) {
+    let Some(HoverTarget::Button { kind }) = hover else {
+        return;
+    };
+    let rect = match kind {
+        HoverButtonKind::SidebarNew => hits.new_workspace,
+        HoverButtonKind::SidebarToggle => hits.sidebar_toggle,
+        HoverButtonKind::GlobalMenuLauncher => hits.global_launcher,
+        HoverButtonKind::AgentPanelSort => hits.agent_sort_toggle,
+        _ => return,
+    };
+    // Only the hovered control is touched; preserve the attention badge's accent.
+    let rect = rect.intersection(buffer.area);
+    for y in rect.y..rect.bottom() {
+        for x in rect.x..rect.right() {
+            let cell = &mut buffer[(x, y)];
+            cell.set_bg(palette.surface1);
+            if cell.symbol() != "●" {
+                cell.set_fg(palette.text);
+            }
+        }
+    }
 }
 
 pub(super) fn put_right_text(buffer: &mut Buffer, area: Rect, y: u16, text: &str, style: Style) {

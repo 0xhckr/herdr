@@ -92,6 +92,13 @@ impl ClientShellState {
         }
         if !self.config.mouse_capture {
             self.hits = ShellHitMap::default();
+        } else {
+            render::render_sidebar_button_hover(
+                &mut buffer,
+                self.hover.as_ref(),
+                &self.hits,
+                &self.config.palette,
+            );
         }
         let message = self.endpoint_error.clone().unwrap_or_else(|| {
             let status = self

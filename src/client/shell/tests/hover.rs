@@ -109,3 +109,38 @@ fn hovering_tabs_highlights_inactive_tabs_and_preserves_focused_style() {
     let buffer = state.compose(106, 20).unwrap().to_ratatui_buffer().unwrap();
     assert_eq!(buffer[(rect.x, rect.y)].bg, state.config.palette.surface1);
 }
+
+#[test]
+fn hovering_workspace_highlights_expanded_and_collapsed_rows() {
+    for collapsed in [false, true] {
+        let mut state = hover_state();
+        let mut snapshot = state.snapshot.as_deref().unwrap().clone();
+        let mut workspace = snapshot.workspaces[0].clone();
+        workspace.workspace_id = "ws_2".into();
+        workspace.focused = false;
+        snapshot.workspaces.push(workspace);
+        state.set_snapshot(Box::new(snapshot));
+        state.sidebar_collapsed = collapsed;
+        state.compose(106, 20).unwrap();
+        let rect = state.hits.workspaces[1].rect;
+        motion(&mut state, rect);
+        let buffer = state.compose(106, 20).unwrap().to_ratatui_buffer().unwrap();
+        assert_eq!(buffer[(rect.x, rect.y)].bg, state.config.palette.surface1);
+    }
+}
+
+#[test]
+fn hovering_sidebar_buttons_highlights_only_the_control() {
+    let mut state = hover_state();
+    for rect in [
+        state.hits.new_workspace,
+        state.hits.global_launcher,
+        state.hits.agent_sort_toggle,
+        state.hits.sidebar_toggle,
+    ] {
+        assert!(!rect.is_empty());
+        motion(&mut state, rect);
+        let buffer = state.compose(106, 20).unwrap().to_ratatui_buffer().unwrap();
+        assert_eq!(buffer[(rect.x, rect.y)].bg, state.config.palette.surface1);
+    }
+}
