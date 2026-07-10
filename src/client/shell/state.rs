@@ -888,6 +888,32 @@ pub(super) struct ClientCopyModeState {
     pub(super) copy_after_search: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum HoverButtonKind {
+    NewTab,
+    TabScrollLeft,
+    TabScrollRight,
+    SidebarNew,
+    SidebarToggle,
+    GlobalMenuLauncher,
+    AgentPanelSort,
+}
+
+/// Client-local chrome hover identity, independent of server presentation state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum HoverTarget {
+    Tab {
+        tab_id: String,
+    },
+    Workspace {
+        endpoint_id: ClientEndpointId,
+        workspace_id: String,
+    },
+    Button {
+        kind: HoverButtonKind,
+    },
+}
+
 pub(crate) struct ClientShellState {
     pub(super) config: ClientShellConfig,
     pub(super) snapshot: Option<Box<ClientShellSnapshot>>,
@@ -909,6 +935,7 @@ pub(crate) struct ClientShellState {
     pub(super) chrome_drag: Option<ClientChromeDrag>,
     pub(super) workspace_press: Option<ClientWorkspacePress>,
     pub(super) tab_press: Option<ClientTabPress>,
+    pub(super) hover: Option<HoverTarget>,
     pub(super) collapsed_groups: HashSet<String>,
     pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
     pub(super) workspace_scroll: usize,
@@ -1067,6 +1094,7 @@ impl ClientShellState {
             chrome_drag: None,
             workspace_press: None,
             tab_press: None,
+            hover: None,
             collapsed_groups: preferences.collapsed_groups.into_iter().collect(),
             remote_collapsed_groups,
             workspace_scroll: 0,
@@ -1243,6 +1271,7 @@ impl ClientShellState {
     }
 
     pub(super) fn reset_endpoint_projection(&mut self) {
+        self.hover = None;
         self.hits = ShellHitMap::default();
         self.pane_surface = None;
         self.pending_pane_surface = None;

@@ -171,6 +171,7 @@ impl ClientShellState {
             return false;
         };
         if endpoint_id != &self.active_endpoint_id {
+            self.hover = None;
             self.active_endpoint_id = endpoint_id.clone();
             self.pane_surface = None;
             self.pending_pane_surface = None;
