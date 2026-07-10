@@ -5,6 +5,61 @@ const SELECTION_AUTOSCROLL_INTERVAL: std::time::Duration = std::time::Duration::
 const SELECTION_REPAINT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
 
 impl ClientShellState {
+    fn hover_target_at(&self, point: (u16, u16)) -> Option<HoverTarget> {
+        if !self.config.mouse_capture
+            || self.chrome_drag.is_some()
+            || self.selection.is_some()
+            || self.pane_mouse_gesture.is_some()
+            || self.hits.popup.is_some()
+            || !matches!(
+                self.overlay,
+                None | Some(
+                    ClientShellOverlay::Rename(_)
+                        | ClientShellOverlay::ConfirmClose(_)
+                        | ClientShellOverlay::WorktreeCreate(_)
+                        | ClientShellOverlay::WorktreeOpen(_)
+                        | ClientShellOverlay::WorktreeRemove(_)
+                )
+            )
+        {
+            return None;
+        }
+        for (rect, kind) in [
+            (self.hits.sidebar_toggle, HoverButtonKind::SidebarToggle),
+            (self.hits.agent_sort_toggle, HoverButtonKind::AgentPanelSort),
+            (self.hits.new_workspace, HoverButtonKind::SidebarNew),
+            (
+                self.hits.global_launcher,
+                HoverButtonKind::GlobalMenuLauncher,
+            ),
+            (self.hits.tab_scroll_left, HoverButtonKind::TabScrollLeft),
+            (self.hits.tab_scroll_right, HoverButtonKind::TabScrollRight),
+            (self.hits.new_tab, HoverButtonKind::NewTab),
+        ] {
+            if super::contains(rect, point) {
+                return Some(HoverTarget::Button { kind });
+            }
+        }
+        if let Some(hit) = self
+            .hits
+            .workspaces
+            .iter()
+            .find(|hit| super::contains(hit.rect, point))
+        {
+            return Some(HoverTarget::Workspace {
+                endpoint_id: hit.endpoint_id.clone(),
+                workspace_id: hit.workspace_id.clone(),
+            });
+        }
+        self.hits
+            .tabs
+            .iter()
+            .find(|(rect, _)| super::contains(*rect, point))
+            .map(|(_, tab_id)| HoverTarget::Tab {
+                tab_id: tab_id.clone(),
+            })
+    }
+
     fn set_sidebar_width_from_column(&mut self, column: u16, outcome: &mut ClientShellInput) {
         let (min, max) = crate::config::validated_sidebar_bounds(
             self.config.sidebar_min_width,
@@ -654,6 +709,10 @@ impl ClientShellState {
 
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent, outcome: &mut ClientShellInput) {
         let point = (mouse.column, mouse.row);
+        if mouse.kind == MouseEventKind::Moved {
+            let hover = self.hover_target_at(point);
+            self.hover = hover;
+        }
         if self.mode == ClientShellMode::Navigate
             && self.workspace_preview_action_blocked()
             && self.overlay.is_none()
@@ -2255,10 +2314,29 @@ impl ClientShellState {
                     .hits
                     .panes
                     .iter()
-                    .find(|hit| super::contains(hit.inner_rect, point) && hit.mouse_reporting)
+                    .find(|hit| super::contains(hit.inner_rect, point))
                     .cloned()
                 {
-                    self.push_pane_mouse_event(&hit, mouse, mouse.modifiers, outcome);
+                    if hit.mouse_reporting {
+                        self.push_pane_mouse_event(&hit, mouse, mouse.modifiers, outcome);
+                    }
+                    if self.config.mouse_capture
+                        && matches!(
+                            self.mode,
+                            ClientShellMode::Terminal | ClientShellMode::Resize
+                        )
+                        && self.chrome_drag.is_none()
+                        && self.selection.is_none()
+                        && self.pane_mouse_gesture.is_none()
+                        && self.focused_pane_id().as_deref() != Some(hit.pane_id.as_str())
+                    {
+                        self.push_endpoint_method(
+                            crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+                                pane_id: hit.pane_id,
+                            }),
+                            outcome,
+                        );
+                    }
                 }
             }
             MouseEventKind::ScrollUp
