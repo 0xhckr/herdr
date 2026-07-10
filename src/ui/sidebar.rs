@@ -796,10 +796,18 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         let is_selected = visible_idx == app.selected && is_navigating;
         let is_active = Some(visible_idx) == app.active;
         let selection_bg = workspace_selection_background(p, is_active);
+        let is_hovered = app.hover.is_some_and(|target| {
+            target
+                == crate::app::state::HoverTarget::Workspace {
+                    ws_idx: visible_idx,
+                }
+        });
         let row_style = if is_selected {
             Style::default().bg(selection_bg)
         } else if is_active {
             Style::default().bg(p.active_row_bg)
+        } else if is_hovered {
+            Style::default().bg(p.surface1)
         } else {
             Style::default()
         };
@@ -807,11 +815,13 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
             Style::default().fg(p.overlay1).bg(selection_bg)
         } else if is_active {
             Style::default().fg(p.text).bg(p.active_row_bg)
+        } else if is_hovered {
+            Style::default().fg(p.text).bg(p.surface1)
         } else {
             Style::default().fg(p.overlay0)
         };
 
-        if is_selected || is_active {
+        if is_selected || is_active || is_hovered {
             let buf = frame.buffer_mut();
             for x in ws_area.x..ws_area.x + ws_area.width {
                 buf[(x, y)].set_style(row_style);
@@ -1252,13 +1262,16 @@ fn render_workspace_list(
         let selected = i == app.selected && is_navigating;
         let is_active = Some(i) == app.active;
         let is_dragged = dragged_ws_idx == Some(i);
-        let highlighted = selected || is_active || is_dragged;
+        let is_hovered = app.hover.is_some_and(|target| {
+            target == crate::app::state::HoverTarget::Workspace { ws_idx: i }
+        });
+        let highlighted = selected || is_active || is_dragged || is_hovered;
         let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
 
         if highlighted {
             let bg = if selected {
                 workspace_selection_background(p, is_active)
-            } else if is_dragged {
+            } else if is_dragged || is_hovered {
                 p.surface1
             } else {
                 p.active_row_bg
@@ -1274,7 +1287,7 @@ fn render_workspace_list(
             }
         }
 
-        let name_style = if selected || is_active || is_dragged {
+        let name_style = if selected || is_active || is_dragged || is_hovered {
             Style::default().fg(p.text).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(p.subtext0)
@@ -1376,7 +1389,6 @@ fn render_workspace_list(
                 Rect::new(card.rect.x, row_y + row_index as u16, card.rect.width, 1),
             );
         }
-
         if let Some((_, collapsed)) = parent_group {
             frame.render_widget(
                 Paragraph::new(Span::styled(
@@ -1405,22 +1417,41 @@ fn render_workspace_list(
 
     if app.mouse_capture && list_bottom > area.y {
         let new_rect = app.sidebar_new_button_rect();
-        frame.render_widget(
-            Paragraph::new(Span::styled(" new", Style::default().fg(p.overlay0))),
-            new_rect,
-        );
+        let new_hovered = app.hover.is_some_and(|target| {
+            target
+                == crate::app::state::HoverTarget::Button {
+                    kind: crate::app::state::HoverButtonKind::SidebarNew,
+                }
+        });
+        let new_style = if new_hovered {
+            Style::default().fg(p.text).bg(p.surface1)
+        } else {
+            Style::default().fg(p.overlay0)
+        };
+        frame.render_widget(Paragraph::new(Span::styled(" new", new_style)), new_rect);
 
         let menu_rect = app.global_launcher_rect();
+        let menu_hovered = app.hover.is_some_and(|target| {
+            target
+                == crate::app::state::HoverTarget::Button {
+                    kind: crate::app::state::HoverButtonKind::GlobalMenuLauncher,
+                }
+        });
+        let menu_fg = if menu_hovered { p.text } else { p.overlay0 };
+        let menu_bg = if menu_hovered { p.surface1 } else { p.panel_bg };
         let menu_line = if app.global_menu_attention_badge_visible() {
             Line::from(vec![
                 Span::styled(
                     "● ",
                     Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled("menu", Style::default().fg(p.overlay0)),
+                Span::styled("menu", Style::default().fg(menu_fg).bg(menu_bg)),
             ])
         } else {
-            Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
+            Line::from(vec![Span::styled(
+                "menu",
+                Style::default().fg(menu_fg).bg(menu_bg),
+            )])
         };
         frame.render_widget(
             Paragraph::new(menu_line).alignment(Alignment::Right),
@@ -1457,18 +1488,25 @@ fn render_agent_detail(
     let control_label = active_agent_view_label(app)
         .unwrap_or_else(|| agent_panel_sort_label(app.agent_panel_sort));
     let toggle_rect = agent_panel_header_label_rect(area, control_label);
+    let sort_hovered = app.hover.is_some_and(|target| {
+        target
+            == crate::app::state::HoverTarget::Button {
+                kind: crate::app::state::HoverButtonKind::AgentPanelSort,
+            }
+    });
     if toggle_rect != Rect::default() {
         let color = if app.agent_view_override.is_some() {
             p.accent
         } else {
             p.overlay0
         };
+        let style = if sort_hovered {
+            Style::default().fg(p.text).bg(p.surface1)
+        } else {
+            Style::default().fg(color).add_modifier(Modifier::BOLD)
+        };
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                control_label,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ))
-            .alignment(Alignment::Right),
+            Paragraph::new(Span::styled(control_label, style)).alignment(Alignment::Right),
             toggle_rect,
         );
     }
@@ -1586,7 +1624,15 @@ fn render_sidebar_toggle(
         return;
     }
     let icon = if collapsed { "»" } else { "«" };
-    let icon_style = if collapsed && app.global_menu_attention_badge_visible() {
+    let toggle_hovered = app.hover.is_some_and(|target| {
+        target
+            == crate::app::state::HoverTarget::Button {
+                kind: crate::app::state::HoverButtonKind::SidebarToggle,
+            }
+    });
+    let icon_style = if toggle_hovered {
+        Style::default().fg(p.text).bg(p.surface1)
+    } else if collapsed && app.global_menu_attention_badge_visible() {
         Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(p.overlay0)
