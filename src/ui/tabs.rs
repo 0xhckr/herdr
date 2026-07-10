@@ -283,9 +283,19 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
     let can_scroll_right = app.view.tab_scroll_right_hit_area.width > 0
         && last_visible_idx.is_some_and(|idx| idx + 1 < ws.tabs.len());
 
+    let scroll_left_hovered = app.hover.is_some_and(|target| {
+        target
+            == crate::app::state::HoverTarget::Button {
+                kind: crate::app::state::HoverButtonKind::TabScrollLeft,
+            }
+    });
     if app.mouse_capture && app.view.tab_scroll_left_hit_area.width > 0 {
         let style = if can_scroll_left {
-            Style::default().fg(p.overlay1).bg(p.surface0)
+            if scroll_left_hovered {
+                Style::default().fg(p.text).bg(p.surface1)
+            } else {
+                Style::default().fg(p.overlay1).bg(p.surface0)
+            }
         } else {
             Style::default()
                 .fg(p.overlay0)
@@ -298,9 +308,19 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         );
     }
 
+    let scroll_right_hovered = app.hover.is_some_and(|target| {
+        target
+            == crate::app::state::HoverTarget::Button {
+                kind: crate::app::state::HoverButtonKind::TabScrollRight,
+            }
+    });
     if app.mouse_capture && app.view.tab_scroll_right_hit_area.width > 0 {
         let style = if can_scroll_right {
-            Style::default().fg(p.overlay1).bg(p.surface0)
+            if scroll_right_hovered {
+                Style::default().fg(p.text).bg(p.surface1)
+            } else {
+                Style::default().fg(p.overlay1).bg(p.surface0)
+            }
         } else {
             Style::default()
                 .fg(p.overlay0)
@@ -321,12 +341,29 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
             continue;
         }
         let active = idx == ws.active_tab;
+        let hovered = !active
+            && app.hover.is_some_and(|target| {
+                target
+                    == crate::app::state::HoverTarget::Tab {
+                        ws_idx: active_ws_idx,
+                        tab_idx: idx,
+                    }
+            });
         let style = if active {
             let base = Style::default().fg(panel_contrast_fg(p)).bg(p.accent);
             if tab.is_auto_named() {
                 base
             } else {
                 base.add_modifier(Modifier::BOLD)
+            }
+        } else if hovered {
+            if tab.is_auto_named() {
+                Style::default().fg(p.overlay1).bg(p.surface1)
+            } else {
+                Style::default()
+                    .fg(p.text)
+                    .bg(p.surface1)
+                    .add_modifier(Modifier::BOLD)
             }
         } else if tab.is_auto_named() {
             Style::default()
@@ -360,9 +397,20 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         }
     }
 
+    let new_tab_hovered = app.hover.is_some_and(|target| {
+        target
+            == crate::app::state::HoverTarget::Button {
+                kind: crate::app::state::HoverButtonKind::NewTab,
+            }
+    });
     if app.mouse_capture && app.view.new_tab_hit_area.width > 0 {
+        let style = if new_tab_hovered {
+            Style::default().fg(p.text).bg(p.surface1)
+        } else {
+            Style::default().fg(p.overlay1)
+        };
         frame.render_widget(
-            Paragraph::new(" + ").style(Style::default().fg(p.overlay1)),
+            Paragraph::new(" + ").style(style),
             app.view.new_tab_hit_area,
         );
     }
