@@ -6,8 +6,8 @@ use tracing::warn;
 use crate::{
     app::state::{
         AgentPanelSort, AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget,
-        MenuListState, Mode, RightClickPassthroughGesture, TabPressState, ViewLayout,
-        WorkspacePressState,
+        HoverButtonKind, HoverTarget, MenuListState, Mode, RightClickPassthroughGesture,
+        TabPressState, ViewLayout, WorkspacePressState,
     },
     layout::{PaneInfo, SplitBorder},
     selection::Selection,
@@ -100,6 +100,10 @@ impl AppState {
         terminal_runtimes: &mut TerminalRuntimeRegistry,
         mouse: MouseEvent,
     ) -> Option<MouseAction> {
+        if matches!(mouse.kind, MouseEventKind::Moved) {
+            self.update_hover(mouse);
+        }
+
         if self.mode == Mode::Onboarding {
             self.handle_onboarding_mouse(mouse);
             return None;
@@ -997,9 +1001,26 @@ impl AppState {
                 }
             }
 
-            MouseEventKind::Moved if self.mode == Mode::Terminal && !in_sidebar => {
+            MouseEventKind::Moved
+                if (self.mode == Mode::Terminal || self.mode == Mode::Resize) && !in_sidebar =>
+            {
                 if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
                     let _ = self.forward_pane_mouse_motion(terminal_runtimes, &info, mouse);
+                    if self.drag.is_none() && self.selection.is_none() {
+                        if let Some(ws_idx) = self.active {
+                            let already_focused = self
+                                .workspaces
+                                .get(ws_idx)
+                                .and_then(|ws| ws.active_tab())
+                                .is_some_and(|tab| tab.layout.focused() == info.id);
+                            if !already_focused {
+                                return Some(MouseAction::FocusPane {
+                                    ws_idx,
+                                    pane_id: info.id,
+                                });
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1112,6 +1133,121 @@ impl AppState {
         }
 
         None
+    }
+
+    pub(crate) fn update_hover(&mut self, mouse: MouseEvent) {
+        if self.drag.is_some() || self.selection.is_some() || self.right_click_passthrough.is_some()
+        {
+            self.hover = None;
+            return;
+        }
+
+        match self.mode {
+            Mode::Terminal
+            | Mode::Navigate
+            | Mode::Resize
+            | Mode::Copy
+            | Mode::Prefix
+            | Mode::RenameWorkspace
+            | Mode::RenameTab
+            | Mode::RenamePane
+            | Mode::NewLinkedWorktree
+            | Mode::OpenExistingWorktree
+            | Mode::ConfirmRemoveWorktree
+            | Mode::ConfirmClose => {}
+            _ => {
+                self.hover = None;
+                return;
+            }
+        }
+
+        let sidebar = self.view.sidebar_rect;
+        let in_sidebar = sidebar.width > 0
+            && mouse.column >= sidebar.x
+            && mouse.column < sidebar.x + sidebar.width
+            && mouse.row >= sidebar.y
+            && mouse.row < sidebar.y + sidebar.height;
+
+        if self.on_sidebar_toggle(mouse.column, mouse.row) {
+            self.hover = Some(HoverTarget::Button {
+                kind: HoverButtonKind::SidebarToggle,
+            });
+            return;
+        }
+
+        if in_sidebar {
+            if !self.sidebar_collapsed {
+                if self.on_agent_panel_sort_toggle(mouse.column, mouse.row) {
+                    self.hover = Some(HoverTarget::Button {
+                        kind: HoverButtonKind::AgentPanelSort,
+                    });
+                    return;
+                }
+
+                let new_button = self.sidebar_new_button_rect();
+                if new_button.width > 0
+                    && mouse.column >= new_button.x
+                    && mouse.column < new_button.x + new_button.width
+                    && mouse.row >= new_button.y
+                    && mouse.row < new_button.y + new_button.height
+                {
+                    self.hover = Some(HoverTarget::Button {
+                        kind: HoverButtonKind::SidebarNew,
+                    });
+                    return;
+                }
+
+                if let Some(ws_idx) = self.workspace_at_row(mouse.row) {
+                    self.hover = Some(HoverTarget::Workspace { ws_idx });
+                    return;
+                }
+
+                let launcher = self.global_launcher_rect();
+                if launcher.width > 0
+                    && mouse.column >= launcher.x
+                    && mouse.column < launcher.x + launcher.width
+                    && mouse.row >= launcher.y
+                    && mouse.row < launcher.y + launcher.height
+                {
+                    self.hover = Some(HoverTarget::Button {
+                        kind: HoverButtonKind::GlobalMenuLauncher,
+                    });
+                    return;
+                }
+            } else {
+                if let Some(ws_idx) = self.collapsed_workspace_at_row(mouse.row) {
+                    self.hover = Some(HoverTarget::Workspace { ws_idx });
+                    return;
+                }
+            }
+        } else {
+            if self.on_tab_scroll_left_button(mouse.column, mouse.row) {
+                self.hover = Some(HoverTarget::Button {
+                    kind: HoverButtonKind::TabScrollLeft,
+                });
+                return;
+            }
+            if self.on_tab_scroll_right_button(mouse.column, mouse.row) {
+                self.hover = Some(HoverTarget::Button {
+                    kind: HoverButtonKind::TabScrollRight,
+                });
+                return;
+            }
+            if self.on_new_tab_button(mouse.column, mouse.row) {
+                self.hover = Some(HoverTarget::Button {
+                    kind: HoverButtonKind::NewTab,
+                });
+                return;
+            }
+            if let (Some(ws_idx), Some(tab_idx)) =
+                (self.active, self.tab_at(mouse.column, mouse.row))
+            {
+                self.hover = Some(HoverTarget::Tab { ws_idx, tab_idx });
+                return;
+            }
+        }
+
+        self.hover = None;
     }
 
     fn handle_mobile_mouse(&mut self, mouse: MouseEvent) -> MobileMouseResult {
@@ -3892,5 +4028,172 @@ mod tests {
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::HostScroll);
+    }
+
+    #[test]
+    fn hovering_tab_updates_hover_target() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        ws.test_add_tab(Some("logs"));
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let tab_rect = app.state.view.tab_hit_areas[1];
+        app.handle_mouse(mouse(MouseEventKind::Moved, tab_rect.x + 1, tab_rect.y));
+
+        assert_eq!(
+            app.state.hover,
+            Some(HoverTarget::Tab {
+                ws_idx: 0,
+                tab_idx: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn hovering_workspace_updates_hover_target() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let target_row = app.state.view.workspace_card_areas[1].rect.y;
+        app.handle_mouse(mouse(MouseEventKind::Moved, 2, target_row));
+
+        assert_eq!(app.state.hover, Some(HoverTarget::Workspace { ws_idx: 1 }));
+    }
+
+    #[test]
+    fn hovering_new_tab_button_updates_hover_target() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        ws.test_add_tab(Some("logs"));
+        ws.test_add_tab(Some("review"));
+        ws.test_add_tab(Some("ops"));
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 65, 20));
+        let new_tab_rect = app.state.view.new_tab_hit_area;
+        assert!(new_tab_rect.width > 0);
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            new_tab_rect.x + 1,
+            new_tab_rect.y,
+        ));
+
+        assert_eq!(
+            app.state.hover,
+            Some(HoverTarget::Button {
+                kind: HoverButtonKind::NewTab,
+            })
+        );
+    }
+
+    #[test]
+    fn hovering_pane_switches_focus() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let root = ws.tabs[0].root_pane;
+        let other = ws.test_split(Direction::Horizontal);
+        ws.tabs[0].layout.focus_pane(root);
+        app.state.workspaces = vec![ws];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let other_info = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == other)
+            .expect("other pane info")
+            .clone();
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            other_info.inner_rect.x + 1,
+            other_info.inner_rect.y + 1,
+        ));
+
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), other);
+    }
+
+    #[test]
+    fn hovering_pane_switches_focus_in_resize_mode() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let root = ws.tabs[0].root_pane;
+        let other = ws.test_split(Direction::Horizontal);
+        ws.tabs[0].layout.focus_pane(root);
+        app.state.workspaces = vec![ws];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Resize;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let other_info = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == other)
+            .expect("other pane info")
+            .clone();
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            other_info.inner_rect.x + 1,
+            other_info.inner_rect.y + 1,
+        ));
+
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), other);
+    }
+
+    #[test]
+    fn hovering_pane_already_focused_does_not_request_focus() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let root = ws.tabs[0].root_pane;
+        let _other = ws.test_split(Direction::Horizontal);
+        ws.tabs[0].layout.focus_pane(root);
+        app.state.workspaces = vec![ws];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let root_info = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == root)
+            .expect("root pane info")
+            .clone();
+        let action = app.state.handle_mouse(
+            &mut app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Moved,
+                root_info.inner_rect.x + 1,
+                root_info.inner_rect.y + 1,
+            ),
+        );
+
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), root);
+        assert!(
+            action.is_none(),
+            "hovering the already focused pane must not produce a MouseAction"
+        );
     }
 }
