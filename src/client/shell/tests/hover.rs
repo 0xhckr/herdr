@@ -91,3 +91,21 @@ fn hovering_does_not_focus_during_selection_or_copy_mode() {
     assert!(motion(&mut state, pane).actions.is_empty());
     assert!(state.hover.is_none());
 }
+
+#[test]
+fn hovering_tabs_highlights_inactive_tabs_and_preserves_focused_style() {
+    let mut state = hover_state();
+    for (index, expected) in [
+        (1, state.config.palette.surface1),
+        (0, state.config.palette.accent),
+    ] {
+        let rect = state.hits.tabs[index].0;
+        motion(&mut state, rect);
+        let buffer = state.compose(106, 20).unwrap().to_ratatui_buffer().unwrap();
+        assert_eq!(buffer[(rect.x, rect.y)].bg, expected);
+    }
+    let rect = state.hits.new_tab;
+    motion(&mut state, rect);
+    let buffer = state.compose(106, 20).unwrap().to_ratatui_buffer().unwrap();
+    assert_eq!(buffer[(rect.x, rect.y)].bg, state.config.palette.surface1);
+}

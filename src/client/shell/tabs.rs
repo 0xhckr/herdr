@@ -12,6 +12,7 @@ pub(crate) fn render_tab_bar(
     tab_scroll: &mut usize,
     reveal_focused_tab: &mut bool,
     tab_drag_insert_index: Option<usize>,
+    hover: Option<&HoverTarget>,
     hits: &mut ShellHitMap,
 ) {
     let palette = &config.palette;
@@ -67,6 +68,13 @@ pub(crate) fn render_tab_bar(
             TAB_SCROLL_BUTTON_WIDTH.min(content.width),
             1,
         );
+        let hovered = *tab_scroll > 0
+            && matches!(
+                hover,
+                Some(HoverTarget::Button {
+                    kind: HoverButtonKind::TabScrollLeft
+                })
+            );
         put_text(
             buffer,
             hits.tab_scroll_left.x,
@@ -74,12 +82,18 @@ pub(crate) fn render_tab_bar(
             hits.tab_scroll_left.width,
             " < ",
             Style::default()
-                .fg(if *tab_scroll > 0 {
+                .fg(if hovered {
+                    palette.text
+                } else if *tab_scroll > 0 {
                     palette.overlay1
                 } else {
                     palette.overlay0
                 })
-                .bg(palette.surface0),
+                .bg(if hovered {
+                    palette.surface1
+                } else {
+                    palette.surface0
+                }),
         );
         x = hits.tab_scroll_left.right();
         content
@@ -108,6 +122,15 @@ pub(crate) fn render_tab_bar(
                 base.add_modifier(Modifier::BOLD)
             } else {
                 base
+            }
+        } else if matches!(hover, Some(HoverTarget::Tab { tab_id }) if tab_id == &tab.tab_id) {
+            if tab.custom_label {
+                Style::default()
+                    .fg(palette.text)
+                    .bg(palette.surface1)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.overlay1).bg(palette.surface1)
             }
         } else if tab.custom_label {
             Style::default().fg(palette.overlay1).bg(palette.surface0)
@@ -138,6 +161,13 @@ pub(crate) fn render_tab_bar(
     if overflow && mouse_chrome {
         hits.tab_scroll_right = Rect::new(tab_right, area.y, TAB_SCROLL_BUTTON_WIDTH, 1);
         let can_scroll_right = last_visible.is_some_and(|index| index + 1 < tabs.len());
+        let hovered = can_scroll_right
+            && matches!(
+                hover,
+                Some(HoverTarget::Button {
+                    kind: HoverButtonKind::TabScrollRight
+                })
+            );
         put_text(
             buffer,
             hits.tab_scroll_right.x,
@@ -145,12 +175,18 @@ pub(crate) fn render_tab_bar(
             hits.tab_scroll_right.width,
             " > ",
             Style::default()
-                .fg(if can_scroll_right {
+                .fg(if hovered {
+                    palette.text
+                } else if can_scroll_right {
                     palette.overlay1
                 } else {
                     palette.overlay0
                 })
-                .bg(palette.surface0),
+                .bg(if hovered {
+                    palette.surface1
+                } else {
+                    palette.surface0
+                }),
         );
         hits.new_tab = Rect::new(
             hits.tab_scroll_right.right(),
@@ -176,7 +212,16 @@ pub(crate) fn render_tab_bar(
             area.y,
             hits.new_tab.width,
             " + ",
-            Style::default().fg(palette.overlay1).bg(palette.panel_bg),
+            if matches!(
+                hover,
+                Some(HoverTarget::Button {
+                    kind: HoverButtonKind::NewTab
+                })
+            ) {
+                Style::default().fg(palette.text).bg(palette.surface1)
+            } else {
+                Style::default().fg(palette.overlay1).bg(palette.panel_bg)
+            },
         );
     }
 

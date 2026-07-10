@@ -49,6 +49,7 @@ impl ClientShellState {
                     == Some(ClientEndpointStatus::Online)
         });
         let mut render_state = render::ShellRenderState {
+            hover: self.hover.as_ref(),
             endpoints: &self.endpoints,
             active_endpoint_id: &self.active_endpoint_id,
             collapsed_endpoints: &self.collapsed_endpoints,
@@ -182,6 +183,7 @@ impl ClientShellState {
             snapshot,
             &self.config,
             render::ShellRenderState {
+                hover: self.hover.as_ref(),
                 endpoints: &self.endpoints,
                 active_endpoint_id: &self.active_endpoint_id,
                 collapsed_endpoints: &self.collapsed_endpoints,
