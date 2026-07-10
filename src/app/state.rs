@@ -1193,6 +1193,26 @@ pub(crate) struct TabPressState {
     pub start_row: u16,
 }
 
+/// Which clickable UI element the mouse is currently hovering over.
+/// Used for secondary hover highlights and focus-follows-mouse behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HoverButtonKind {
+    NewTab,
+    TabScrollLeft,
+    TabScrollRight,
+    SidebarNew,
+    SidebarToggle,
+    GlobalMenuLauncher,
+    AgentPanelSort,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HoverTarget {
+    Tab { ws_idx: usize, tab_idx: usize },
+    Workspace { ws_idx: usize },
+    Button { kind: HoverButtonKind },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContextMenuKind {
     Workspace {
@@ -1464,6 +1484,8 @@ pub struct AppState {
     pub selection: Option<Selection>,
     pub selection_autoscroll: Option<SelectionAutoscroll>,
     pub context_menu: Option<ContextMenuState>,
+    /// Secondary hover target for tabs, workspaces, and buttons.
+    pub(crate) hover: Option<HoverTarget>,
     // Notifications
     pub update_available: Option<String>,
     pub update_install_command: String,
@@ -1846,6 +1868,7 @@ impl AppState {
             selection: None,
             selection_autoscroll: None,
             context_menu: None,
+            hover: None,
             update_available: None,
             update_install_command: "herdr update".into(),
             latest_release_notes_available: false,
@@ -2044,6 +2067,10 @@ impl AppState {
             assert!(
                 self.context_menu.is_none(),
                 "empty app state must not keep context menu"
+            );
+            assert!(
+                self.hover.is_none(),
+                "empty app state must not keep hover target"
             );
             return;
         }
