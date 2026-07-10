@@ -766,10 +766,18 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
         let is_selected = visible_idx == app.selected && is_navigating;
         let is_active = Some(visible_idx) == app.active;
+        let is_hovered = app.hover.is_some_and(|target| {
+            target
+                == crate::app::state::HoverTarget::Workspace {
+                    ws_idx: visible_idx,
+                }
+        });
         let row_style = if is_selected {
             Style::default().bg(p.surface0)
         } else if is_active {
             Style::default().bg(p.surface_dim)
+        } else if is_hovered {
+            Style::default().bg(p.surface1)
         } else {
             Style::default()
         };
@@ -777,11 +785,13 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
             Style::default().fg(p.overlay1).bg(p.surface0)
         } else if is_active {
             Style::default().fg(p.text).bg(p.surface_dim)
+        } else if is_hovered {
+            Style::default().fg(p.text).bg(p.surface1)
         } else {
             Style::default().fg(p.overlay0)
         };
 
-        if is_selected || is_active {
+        if is_selected || is_active || is_hovered {
             let buf = frame.buffer_mut();
             for x in ws_area.x..ws_area.x + ws_area.width {
                 buf[(x, y)].set_style(row_style);
@@ -1135,13 +1145,16 @@ fn render_workspace_list(
         let selected = i == app.selected && is_navigating;
         let is_active = Some(i) == app.active;
         let is_dragged = dragged_ws_idx == Some(i);
-        let highlighted = selected || is_active || is_dragged;
+        let is_hovered = app.hover.is_some_and(|target| {
+            target == crate::app::state::HoverTarget::Workspace { ws_idx: i }
+        });
+        let highlighted = selected || is_active || is_dragged || is_hovered;
         let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
 
         if highlighted {
             let bg = if selected {
                 p.surface0
-            } else if is_dragged {
+            } else if is_dragged || is_hovered {
                 p.surface1
             } else {
                 p.surface_dim
@@ -1157,7 +1170,7 @@ fn render_workspace_list(
             }
         }
 
-        let name_style = if selected || is_active || is_dragged {
+        let name_style = if selected || is_active || is_dragged || is_hovered {
             Style::default().fg(p.text).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(p.subtext0)
@@ -1247,6 +1260,52 @@ fn render_workspace_list(
                 Rect::new(card.rect.x, row_y + row_index as u16, card.rect.width, 1),
             );
         }
+
+        if row_height > 1 && row_y + 1 < list_bottom {
+             if let Some(branch) = ws.branch() {
+                 let upstream_label = ws.git_ahead_behind().and_then(|(ahead, behind)| {
+                     let mut parts = Vec::new();
+                     if ahead > 0 {
+                         parts.push((format!("↑{}", ahead), p.green));
+                     }
+                     if behind > 0 {
+                         parts.push((format!("↓{}", behind), p.red));
+                     }
+                     (!parts.is_empty()).then_some(parts)
+                 });
+                 let reserved = upstream_label
+                     .as_ref()
+                     .map(|parts| {
+                         parts.iter().map(|(label, _)| label.len()).sum::<usize>() + parts.len()
+                     })
+                     .unwrap_or(0);
+                 let max_branch_len = (card.rect.width as usize).saturating_sub(5 + reserved);
+                 let branch_display = truncate_end(&branch, max_branch_len);
+                 let branch_color = if selected || is_active || is_hovered {
+                     p.mauve
+                 } else {
+                     p.overlay0
+                 };
+                 let branch_indent = if card.indented { "     " } else { "   " };
+                 let mut spans = vec![
+                     Span::styled(branch_indent, Style::default()),
+                     Span::styled(branch_display, Style::default().fg(branch_color)),
+                 ];
+                 if let Some(parts) = upstream_label {
+                     spans.push(Span::styled(" ", Style::default()));
+                     for (idx, (label, color)) in parts.into_iter().enumerate() {
+                         if idx > 0 {
+                             spans.push(Span::styled(" ", Style::default()));
+                         }
+                         spans.push(Span::styled(label, Style::default().fg(color)));
+                     }
+                 }
+                 frame.render_widget(
+                     Paragraph::new(Line::from(spans)),
+                     Rect::new(card.rect.x, row_y + 1, card.rect.width, 1),
+                 );
+             }
+        }
     }
 
     if let Some(y) = insertion_row.filter(|y| *y < list_bottom) {
@@ -1266,22 +1325,41 @@ fn render_workspace_list(
 
     if app.mouse_capture && list_bottom > area.y {
         let new_rect = app.sidebar_new_button_rect();
-        frame.render_widget(
-            Paragraph::new(Span::styled(" new", Style::default().fg(p.overlay0))),
-            new_rect,
-        );
+        let new_hovered = app.hover.is_some_and(|target| {
+            target
+                == crate::app::state::HoverTarget::Button {
+                    kind: crate::app::state::HoverButtonKind::SidebarNew,
+                }
+        });
+        let new_style = if new_hovered {
+            Style::default().fg(p.text).bg(p.surface1)
+        } else {
+            Style::default().fg(p.overlay0)
+        };
+        frame.render_widget(Paragraph::new(Span::styled(" new", new_style)), new_rect);
 
         let menu_rect = app.global_launcher_rect();
+        let menu_hovered = app.hover.is_some_and(|target| {
+            target
+                == crate::app::state::HoverTarget::Button {
+                    kind: crate::app::state::HoverButtonKind::GlobalMenuLauncher,
+                }
+        });
+        let menu_fg = if menu_hovered { p.text } else { p.overlay0 };
+        let menu_bg = if menu_hovered { p.surface1 } else { p.panel_bg };
         let menu_line = if app.global_menu_attention_badge_visible() {
             Line::from(vec![
                 Span::styled(
                     "● ",
                     Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled("menu", Style::default().fg(p.overlay0)),
+                Span::styled("menu", Style::default().fg(menu_fg).bg(menu_bg)),
             ])
         } else {
-            Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
+            Line::from(vec![Span::styled(
+                "menu",
+                Style::default().fg(menu_fg).bg(menu_bg),
+            )])
         };
         frame.render_widget(
             Paragraph::new(menu_line).alignment(Alignment::Right),
@@ -1316,11 +1394,22 @@ fn render_agent_detail(
         Rect::new(area.x, area.y + 1, area.width, 1),
     );
     let toggle_rect = agent_panel_toggle_rect(area, app.agent_panel_sort);
+    let sort_hovered = app.hover.is_some_and(|target| {
+        target
+            == crate::app::state::HoverTarget::Button {
+                kind: crate::app::state::HoverButtonKind::AgentPanelSort,
+            }
+    });
     if toggle_rect != Rect::default() {
+        let style = if sort_hovered {
+            Style::default().fg(p.text).bg(p.surface1)
+        } else {
+            Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD)
+        };
         frame.render_widget(
             Paragraph::new(Span::styled(
                 agent_panel_sort_label(app.agent_panel_sort),
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+                style,
             ))
             .alignment(Alignment::Right),
             toggle_rect,
@@ -1431,7 +1520,15 @@ fn render_sidebar_toggle(
         return;
     }
     let icon = if collapsed { "»" } else { "«" };
-    let icon_style = if collapsed && app.global_menu_attention_badge_visible() {
+    let toggle_hovered = app.hover.is_some_and(|target| {
+        target
+            == crate::app::state::HoverTarget::Button {
+                kind: crate::app::state::HoverButtonKind::SidebarToggle,
+            }
+    });
+    let icon_style = if toggle_hovered {
+        Style::default().fg(p.text).bg(p.surface1)
+    } else if collapsed && app.global_menu_attention_badge_visible() {
         Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(p.overlay0)
