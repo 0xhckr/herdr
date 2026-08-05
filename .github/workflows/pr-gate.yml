@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   check-contributor:
-    if: github.repository == 'herdrdev/herdr' || github.repository == 'ogulcancelik/herdr'
+    if: github.repository == 'herdrdev/herdr'
     runs-on: ubuntu-latest
     permissions:
       contents: read
