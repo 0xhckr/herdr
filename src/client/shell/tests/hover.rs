@@ -144,3 +144,36 @@ fn hovering_sidebar_buttons_highlights_only_the_control() {
         assert_eq!(buffer[(rect.x, rect.y)].bg, state.config.palette.surface1);
     }
 }
+
+#[test]
+fn mouse_motion_repaints_only_when_the_hover_target_changes() {
+    let mut state = hover_state();
+    let rect = state.hits.tabs[1].0;
+    assert!(motion(&mut state, rect).repaint);
+    assert!(!motion(&mut state, rect).repaint);
+    assert!(!motion(&mut state, Rect::new(rect.x + 1, rect.y, 1, 1)).repaint);
+
+    let pane = state.hits.panes[0].inner_rect;
+    assert!(
+        motion(&mut state, pane).repaint,
+        "leaving chrome clears its highlight"
+    );
+    assert!(state.hover.is_none());
+    assert!(!motion(&mut state, pane).repaint);
+}
+
+#[test]
+fn mouse_motion_batch_keeps_repaint_when_a_later_event_is_neutral() {
+    let mut state = hover_state();
+    let rect = state.hits.tabs[1].0;
+    let event = || {
+        RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::empty(),
+        })
+    };
+    assert!(state.handle_raw_events(vec![event(), event()]).repaint);
+    assert!(!state.handle_raw_events(vec![event(), event()]).repaint);
+}

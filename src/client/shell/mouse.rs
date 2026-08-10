@@ -711,6 +711,7 @@ impl ClientShellState {
         let point = (mouse.column, mouse.row);
         if mouse.kind == MouseEventKind::Moved {
             let hover = self.hover_target_at(point);
+            outcome.repaint |= self.hover != hover;
             self.hover = hover;
         }
         if self.mode == ClientShellMode::Navigate
