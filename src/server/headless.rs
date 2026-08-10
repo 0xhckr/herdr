@@ -2927,8 +2927,13 @@ impl HeadlessServer {
             &events,
             self.app.state.redraw_on_focus_gained,
         );
-        let render_neutral_mouse_motion =
+        let mut render_neutral_mouse_motion =
             events_are_render_neutral_mouse_motion(&events, self.app.state.mode);
+        // Hover tracking and focus-follows-mouse mutate view state even for plain
+        // motion in otherwise motion-neutral modes, so compare the relevant state
+        // around input routing.
+        let motion_view_before =
+            render_neutral_mouse_motion.then(|| self.app.state.motion_view_state());
         if let Some(client) = self.clients.get_mut(&client_id) {
             if host_surface_redraw {
                 client.request_repaint();
@@ -2965,6 +2970,14 @@ impl HeadlessServer {
         // Client-local theme reports were applied above; routing them again would update every
         // pane once per palette entry instead of once per captured batch.
         self.app.route_client_events_from(client_id, events, false);
+        if motion_view_before.is_some_and(|before| before != self.app.state.motion_view_state()) {
+            render_neutral_mouse_motion = false;
+            if !host_surface_redraw {
+                if let Some(client) = self.clients.get_mut(&client_id) {
+                    client.request_semantic_redraw_after_input();
+                }
+            }
+        }
         if self.app.take_config_reloaded_from_disk() {
             self.reload_server_config(false);
         } else {
@@ -8715,6 +8728,97 @@ next_tab = ""
         ] {
             assert!(!events_are_render_neutral_mouse_motion(&events, mode));
         }
+    }
+
+    #[test]
+    fn mouse_motion_hover_change_requires_render() {
+        let mut server = test_headless_server();
+        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.state.workspaces = vec![
+            crate::workspace::Workspace::test_new("a"),
+            crate::workspace::Workspace::test_new("b"),
+        ];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.clients.insert(1, test_app_client(Some(true), 1));
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+        crate::ui::compute_view(
+            &mut server.app.state,
+            ratatui::layout::Rect::new(0, 0, 106, 20),
+        );
+        let target_row = server.app.state.view.workspace_card_areas[1].rect.y;
+        let motion = || ServerEvent::ClientInputEvents {
+            client_id: 1,
+            events: vec![crate::protocol::ClientInputEvent::Mouse {
+                kind: crate::protocol::ClientMouseKind::Moved,
+                column: 2,
+                row: target_row,
+                modifiers: 0,
+            }],
+        };
+
+        assert!(
+            server.handle_server_event(motion()),
+            "entering a new hover target must re-render its highlight"
+        );
+        assert!(matches!(
+            server.app.state.hover,
+            Some(crate::app::state::HoverTarget::Workspace { ws_idx: 1 })
+        ));
+        assert!(
+            !server.handle_server_event(motion()),
+            "hovering the same target again must stay render-neutral"
+        );
+    }
+
+    #[test]
+    fn mouse_motion_focus_follows_requires_render() {
+        let mut server = test_headless_server();
+        server.app.state.mode = crate::app::Mode::Terminal;
+        let mut workspace = crate::workspace::Workspace::test_new("a");
+        let root = workspace.tabs[0].root_pane;
+        let other = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(root);
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.clients.insert(1, test_app_client(Some(true), 1));
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+        crate::ui::compute_view(
+            &mut server.app.state,
+            ratatui::layout::Rect::new(0, 0, 106, 20),
+        );
+        let other_rect = server
+            .app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == other)
+            .expect("other pane info")
+            .inner_rect;
+
+        let motion = || ServerEvent::ClientInputEvents {
+            client_id: 1,
+            events: vec![crate::protocol::ClientInputEvent::Mouse {
+                kind: crate::protocol::ClientMouseKind::Moved,
+                column: other_rect.x + 1,
+                row: other_rect.y + 1,
+                modifiers: 0,
+            }],
+        };
+
+        assert!(
+            server.handle_server_event(motion()),
+            "focus-follows-mouse must re-render the new focus border"
+        );
+        assert_eq!(
+            server.app.state.workspaces[0].tabs[0].layout.focused(),
+            other
+        );
     }
 
     fn install_focused_test_runtime(

@@ -1274,6 +1274,26 @@ pub(crate) enum HoverTarget {
     Button { kind: HoverButtonKind },
 }
 
+/// View-relevant state that a plain mouse-motion event may mutate even in
+/// modes the render pipeline treats as motion-neutral: the hover target
+/// (sidebar/tab/button highlights) and the focused pane (focus-follows-mouse).
+/// Input routing snapshots this before handling a motion-only batch and
+/// compares it afterwards to decide whether a re-render is required.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MotionViewState {
+    pub hover: Option<HoverTarget>,
+    pub focus: Option<PaneFocusTarget>,
+}
+
+impl AppState {
+    pub(crate) fn motion_view_state(&self) -> MotionViewState {
+        MotionViewState {
+            hover: self.hover,
+            focus: self.current_pane_focus_target(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContextMenuKind {
     Workspace {

@@ -230,13 +230,21 @@ impl App {
                 true
             }
             crate::raw_input::RawInputEvent::Mouse(mouse) => {
-                let changes_view = !matches!(mouse.kind, crossterm::event::MouseEventKind::Moved)
-                    || self.state.mode.mouse_motion_changes_view();
+                let mut changes_view =
+                    !matches!(mouse.kind, crossterm::event::MouseEventKind::Moved)
+                        || self.state.mode.mouse_motion_changes_view();
+                // Hover tracking and focus-follows-mouse mutate view state even for
+                // plain motion in otherwise motion-neutral modes, so compare the
+                // relevant state around the handler.
+                let motion_view_before = (!changes_view).then(|| self.state.motion_view_state());
                 if self.state.popup_pane.is_some() || self.state.mouse_capture {
                     self.handle_mouse(mouse);
                 } else {
                     self.state
                         .handle_pane_mouse_only(&self.terminal_runtimes, mouse);
+                }
+                if let Some(before) = motion_view_before {
+                    changes_view = before != self.state.motion_view_state();
                 }
                 changes_view
             }
@@ -889,6 +897,66 @@ mod tests {
         assert!(!app.handle_raw_input_event(motion()).await);
         app.state.mode = crate::app::Mode::GlobalMenu;
         assert!(app.handle_raw_input_event(motion()).await);
+    }
+
+    fn motion_event(column: u16, row: u16) -> crate::raw_input::RawInputEvent {
+        crate::raw_input::RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Moved,
+            column,
+            row,
+            modifiers: crossterm::event::KeyModifiers::empty(),
+        })
+    }
+
+    #[tokio::test]
+    async fn hover_state_change_from_motion_requests_render() {
+        let (mut app, _) = test_app_with_pane();
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = crate::app::Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 106, 20));
+        let target_row = app.state.view.workspace_card_areas[1].rect.y;
+
+        // Hovering a workspace card changes the hover highlight: render required.
+        assert!(
+            app.handle_raw_input_event(motion_event(2, target_row))
+                .await
+        );
+        assert_eq!(
+            app.state.hover,
+            Some(state::HoverTarget::Workspace { ws_idx: 1 })
+        );
+
+        // Remaining on the same hover target changes nothing: stays render-neutral.
+        assert!(
+            !app.handle_raw_input_event(motion_event(2, target_row))
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn focus_follows_mouse_motion_requests_render() {
+        let (mut app, pane_id) = test_app_with_pane();
+        let other = app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_id);
+        app.state.ensure_test_terminals();
+        app.state.mode = crate::app::Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 106, 20));
+        let other_rect = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == other)
+            .expect("other pane info")
+            .inner_rect;
+
+        assert!(
+            app.handle_raw_input_event(motion_event(other_rect.x + 1, other_rect.y + 1))
+                .await
+        );
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), other);
     }
 
     #[tokio::test]
