@@ -12,9 +12,6 @@
       },
     },
   },
-  "patchedDependencies": {
-    "starlight-llms-txt@0.6.1": "patches/starlight-llms-txt@0.6.1.patch",
-  },
   "packages": {
     "@astrojs/compiler": ["@astrojs/compiler@2.13.1", "", {}, "sha512-f3FN83d2G/v32ipNClRKgYv30onQlMZX1vCeZMjPsMMPl1mDpmbl0+N5BYo4S/ofzqJyS5hvwacEo0CCVDn/Qg=="],
 
