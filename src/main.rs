@@ -715,7 +715,8 @@ fn main() -> io::Result<()> {
         println!("Logs:   {}", logging::help_log_paths_summary());
         println!("Env:    HERDR_CONFIG_PATH overrides config file path");
         println!("Home:   https://herdr.dev");
-        println!("Skill:  herdr --skill prints agent instructions for driving herdr from a pane");
+        println!();
+        println!("{}", cli::AGENT_HELP_FOOTER);
         return Ok(());
     }
 
