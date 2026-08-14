@@ -25,6 +25,9 @@
 /llms.txt
   Content-Type: text/markdown; charset=utf-8
 
+/llms-preview.txt
+  Content-Type: text/markdown; charset=utf-8
+
 /llms-small.txt
   Content-Type: text/markdown; charset=utf-8
 

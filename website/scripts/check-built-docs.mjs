@@ -72,13 +72,47 @@ if (nonCanonicalDocsUrl.test(sitemap)) {
 }
 
 const llmsIndex = await readFile(resolve(distDir, 'llms.txt'), 'utf8');
+const llmsPreview = await readFile(resolve(distDir, 'llms-preview.txt'), 'utf8');
 const llmsSmall = await readFile(resolve(distDir, 'llms-small.txt'), 'utf8');
 const llmsFull = await readFile(resolve(distDir, 'llms-full.txt'), 'utf8');
 const headers = await readFile(resolve(distDir, '_headers'), 'utf8');
+const currentDocs = versions.versions.find((entry) => entry.version === versions.current);
+if (!currentDocs?.tag || !currentDocs.source) {
+  throw new Error(`current docs version ${versions.current} is missing its tag or source`);
+}
+const stableRawRoot = `https://raw.githubusercontent.com/herdrdev/herdr/${currentDocs.tag}`;
+const stableRawBase = `${stableRawRoot}/${currentDocs.source}`;
+const previewRawBase = `https://raw.githubusercontent.com/herdrdev/herdr/${versions.preview.commit}/docs/next/website/src/content/docs`;
+assertIncludes(llmsIndex, `Current stable release: ${versions.current}.`);
+assertIncludes(llmsIndex, `${stableRawBase}/quick-start.mdx`);
+assertIncludes(
+  llmsIndex,
+  `${stableRawRoot}/${currentDocs.source.replace(/\/content\/docs$/, '/data/config-reference.json')}`,
+);
 assertIncludes(llmsIndex, 'https://herdr.dev/llms-small.txt');
 assertIncludes(llmsIndex, 'https://herdr.dev/llms-full.txt');
 assertIncludes(llmsIndex, 'https://herdr.dev/agent-guide.md');
-for (const path of ['/llms.txt', '/llms-small.txt', '/llms-full.txt']) {
+assertIncludes(llmsIndex, 'https://herdr.dev/llms-preview.txt');
+assertIncludes(llmsPreview, `Active preview build: ${versions.preview.build_id}`);
+assertIncludes(llmsPreview, `${previewRawBase}/quick-start.mdx`);
+assertIncludes(llmsPreview, 'https://herdr.dev/llms.txt');
+const stablePageLinks = llmsIndex
+  .split('\n')
+  .filter((line) => line.includes(`](${stableRawBase}/`));
+if (stablePageLinks.length !== versions.scopes.stable.locales.root.length) {
+  throw new Error(
+    `llms.txt lists ${stablePageLinks.length} stable pages, expected ${versions.scopes.stable.locales.root.length}`,
+  );
+}
+const previewPageLinks = llmsPreview
+  .split('\n')
+  .filter((line) => line.includes(`](${previewRawBase}/`));
+if (previewPageLinks.length !== versions.scopes.preview.locales.root.length) {
+  throw new Error(
+    `llms-preview.txt lists ${previewPageLinks.length} preview pages, expected ${versions.scopes.preview.locales.root.length}`,
+  );
+}
+for (const path of ['/llms.txt', '/llms-preview.txt', '/llms-small.txt', '/llms-full.txt']) {
   assertIncludes(headers, `${path}\n  Content-Type: text/markdown; charset=utf-8`);
 }
 for (const [name, content] of [
