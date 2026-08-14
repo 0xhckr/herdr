@@ -71,6 +71,31 @@ if (nonCanonicalDocsUrl.test(sitemap)) {
   throw new Error('preview or versioned documentation URLs must not appear in the sitemap');
 }
 
+const llmsIndex = await readFile(resolve(distDir, 'llms.txt'), 'utf8');
+const llmsSmall = await readFile(resolve(distDir, 'llms-small.txt'), 'utf8');
+const llmsFull = await readFile(resolve(distDir, 'llms-full.txt'), 'utf8');
+const headers = await readFile(resolve(distDir, '_headers'), 'utf8');
+assertIncludes(llmsIndex, 'https://herdr.dev/llms-small.txt');
+assertIncludes(llmsIndex, 'https://herdr.dev/llms-full.txt');
+assertIncludes(llmsIndex, 'https://herdr.dev/agent-guide.md');
+for (const path of ['/llms.txt', '/llms-small.txt', '/llms-full.txt']) {
+  assertIncludes(headers, `${path}\n  Content-Type: text/markdown; charset=utf-8`);
+}
+for (const [name, content] of [
+  ['llms-small.txt', llmsSmall],
+  ['llms-full.txt', llmsFull],
+]) {
+  assertIncludes(content, '# Herdr documentation');
+  assertIncludes(content, '# Troubleshooting');
+  assertIncludes(content, '# Socket API');
+  if (content.match(/^# Herdr documentation$/gm)?.length !== 1) {
+    throw new Error(`${name} must contain exactly one stable documentation set`);
+  }
+  if (/\]\(\/docs\/(?:preview|\d+\.\d+\.\d+)(?:\/|\))/.test(content)) {
+    throw new Error(`${name} must not link to preview or versioned documentation`);
+  }
+}
+
 const build = await inspectFiles(distDir);
 if (build.count > 20_000) {
   throw new Error(`website build has ${build.count} files, exceeding the Cloudflare Pages free-plan limit`);
