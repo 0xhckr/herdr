@@ -10,7 +10,7 @@
 - Optional `keys.move_tab_previous` and `keys.move_tab_next` bindings now reorder the active tab in place, wrapping at either end. (#2561, thanks @dhh)
 - Optional `keys.resize_pane_left`, `keys.resize_pane_down`, `keys.resize_pane_up`, and `keys.resize_pane_right` bindings now resize the focused pane in one keystroke without entering resize mode. (#2558, thanks @dhh)
 - Windows clients can now use `herdr --remote` to attach to Herdr servers on Linux and macOS. (#2329)
-- Devin CLI, Cursor Agent CLI, MastraCode, Hermes Agent, and Grok CLI integrations now install and run natively on Windows.
+- Cursor Agent CLI, MastraCode, Hermes Agent, and Grok CLI integrations now install and run natively on Windows.
 - Panes can now route normal right-click gestures to mouse-reporting applications through the pane menu, `herdr pane input`, `pane.input.set`, or the `pane split --right-click pane` launch option.
 - `ui.pane_outer_borders` can now keep or hide the outside edges of split-pane borders independently from internal dividers. (#2535, thanks @dhh)
 - `theme.custom.sidebar_bg` can now give the desktop sidebar its own background without changing built-in theme defaults.
@@ -28,7 +28,7 @@
 ### Fixed
 - Unix CLI commands now exit quietly when a downstream pipe closes instead of panicking with exit 101. (#2994)
 - The terminal theme now keeps the active Space row fill visible when the Navigate cursor lands on it, in both expanded and collapsed sidebars. (#2987)
-- High-rate output from many hidden panes no longer floods the server loop with redundant wakeups, and terminal input-mode synchronization no longer formats pane scrollback to read one keyboard flag.
+- Busy multi-pane sessions now avoid redundant hidden-pane wakeups and full terminal-state formatting in pane-scaled paths, preventing CPU regressions from high-rate background output, scrollbars, and enhanced keyboard modes. (#2550, #2901, #2962)
 - Chinese IME commits now reach panes on macOS when the focused application requests printable key-release events. (#2924)
 - Windows now recognizes `Ctrl+1` through `Ctrl+9` keybindings instead of decoding those key records as control characters. (#2910)
 - PowerShell panes now keep their process-reported working directory synchronized with the shell's logical location. (#2879, thanks @Pimpmuckl)
