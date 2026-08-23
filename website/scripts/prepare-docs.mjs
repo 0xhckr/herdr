@@ -73,6 +73,7 @@ async function preparePublicAssets() {
     'latest.json',
     'preview.json',
     'robots.txt',
+    'favicon.ico',
     '_headers',
     '_redirects',
   ]) {
